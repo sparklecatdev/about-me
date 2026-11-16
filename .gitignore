@@ -1,0 +1,21 @@
+.DS_Store
+
+# Keep personal, local, and credential files out of the public website repo
+.env
+.env.*
+!.env.example
+*.log
+*.pem
+*.key
+*.p12
+*.p8
+*.mobileprovision
+*.sqlite
+*.sqlite3
+*.db
+credentials.json
+service-account*.json
+private/
+secrets/
+.cache/
+node_modules/

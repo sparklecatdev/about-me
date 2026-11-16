@@ -1,0 +1,64 @@
+name: Public Site Privacy Check
+
+on:
+  push:
+    paths:
+      - index.html
+      - donate/**
+      - assets/images/**
+      - .github/workflows/privacy-check.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  metadata:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install metadata inspector
+        run: sudo apt-get update -qq && sudo apt-get install -y -qq libimage-exiftool-perl
+      - name: Check for public contact links and identifying image metadata
+        shell: bash
+        run: |
+          python3 - <<'PY'
+          import json, re, subprocess, sys
+          from pathlib import Path
+
+          issues = []
+          # Never emit actual matched personal data in public workflow logs.
+          email = re.compile(r"(?i)[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}")
+          payment = re.compile(r"(?i)https?://(?:www\.)?(?:ko-fi\.com|paypal\.me|cash\.app|venmo\.com)/")
+          for p in (Path("index.html"), Path("donate/index.html")):
+              if not p.is_file():
+                  continue
+              text = p.read_text(encoding="utf-8", errors="replace")
+              for name, rx in (("email address", email), ("payment-profile URL", payment)):
+                  if rx.search(text):
+                      issues.append(f"{p}: contains a {name} (value deliberately hidden)")
+
+          media = [str(p) for p in Path("assets/images").rglob("*")
+                   if p.is_file() and p.suffix.lower() in (".jpg", ".jpeg", ".png", ".gif", ".webp")]
+          for path in media:
+              cmd = ["exiftool", "-j", "-G1", "-s",
+                     "-GPS:All", "-EXIF:Artist", "-EXIF:OwnerName",
+                     "-EXIF:CameraSerialNumber", "-EXIF:BodySerialNumber",
+                     "-XMP:Creator", "-XMP:Location", "-XMP:City",
+                     "-XMP:Country", "-IPTC:By-line", "-IPTC:City",
+                     "-IPTC:Country-PrimaryLocationName", path]
+              result = subprocess.run(cmd, capture_output=True, text=True)
+              if result.returncode != 0:
+                  issues.append(f"{path}: unable to inspect metadata")
+                  continue
+              for entry in json.loads(result.stdout or "[]"):
+                  keys = [k for k in entry if k != "SourceFile"]
+                  if keys:
+                      issues.append(f"{path}: identifying metadata tag(s) {', '.join(keys)}; values hidden")
+
+          if issues:
+              for issue in issues:
+                  print("PRIVACY FINDING:", issue)
+              sys.exit(1)
+          print(f"Passed: no targeted contact disclosures or identifying image metadata in {len(media)} checked assets.")
+          PY
